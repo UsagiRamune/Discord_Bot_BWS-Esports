@@ -12,6 +12,10 @@ try {
     process.exit(1);
 }
 
+// Initialize transcript server
+const TranscriptServer = require('./utils/transcriptServer');
+const transcriptServer = new TranscriptServer();
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -25,6 +29,17 @@ const client = new Client({
 eventHandler(client);
 ticketHandler(client);
 
+// Start transcript server
+async function startTranscriptServer() {
+    try {
+        await transcriptServer.start();
+        console.log('✅ Transcript server started successfully');
+    } catch (error) {
+        console.error('❌ Failed to start transcript server:', error);
+        console.log('⚠️  Bot will continue without transcript web server');
+    }
+}
+
 // Error handling
 process.on('unhandledRejection', (reason, promise) => {
     console.log('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -35,4 +50,18 @@ process.on('uncaughtException', (error) => {
     process.exit(1);
 });
 
-client.login(process.env.BOT_TOKEN);
+// Graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('🛑 Shutting down...');
+    await transcriptServer.stop();
+    client.destroy();
+    process.exit(0);
+});
+
+// Start everything
+async function start() {
+    await startTranscriptServer();
+    await client.login(process.env.BOT_TOKEN);
+}
+
+start().catch(console.error);

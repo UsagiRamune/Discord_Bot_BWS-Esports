@@ -1,4 +1,4 @@
-const { ChennelType, PermissionFlagsBits, } = require('discord.js');
+const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const config = require('../config/config');
 
 class TicketManager {
@@ -14,8 +14,8 @@ class TicketManager {
         return this.activeTickets.get(userId);
     }
 
-    async createTicketChannel(guild, user, catetoryKey) {
-        const category = config.ticketCategories[catetoryKey];
+    async createTicketChannel(guild, user, categoryKey) {
+        const category = config.ticketCategories[categoryKey];
         const channelName = `ticket-${user.username}-${Date.now().toString().slice(-4)}`;
 
         try {
@@ -45,6 +45,7 @@ class TicketManager {
                 }
             ];
 
+            // Add staff role permissions if configured
             if (config.server.staffRoleId) {
                 const staffRole = guild.roles.cache.get(config.server.staffRoleId);
                 if (staffRole) {
@@ -74,13 +75,16 @@ class TicketManager {
                 category: categoryKey,
                 createdAt: Date.now(),
                 userId: user.id,
-                status: 'open'
+                status: 'open',
+                isPaused: false,
+                pausedBy: null,
+                pausedAt: null
             };
 
             this.activeTickets.set(user.id, ticketData);
-            return { seccess: true, channel: ticketChannel, data: ticketData };
+            return { success: true, channel: ticketChannel, data: ticketData };
         } catch (error) {
-            console.errror('Error creating ticket channel:', error);
+            console.error('Error creating ticket channel:', error);
             return { success: false, error: error.message };
         }
     }
@@ -89,8 +93,9 @@ class TicketManager {
         let ticketData = null;
         let userId = null;
 
+        // Find ticket by channel ID
         for (const [uId, ticket] of this.activeTickets.entries()) {
-            if (ticket.channelId == channelId) {
+            if (ticket.channelId === channelId) {
                 ticketData = ticket;
                 userId = uId;
                 break;
@@ -98,7 +103,7 @@ class TicketManager {
         }
 
         if (!ticketData) {
-            return { success: false, error: 'Ticket not found'};
+            return { success: false, error: 'Ticket not found' };
         }
 
         ticketData.status = 'closed';
@@ -107,13 +112,265 @@ class TicketManager {
 
         this.activeTickets.delete(userId);
 
-        return { success: true, data: ticketData};
+        return { success: true, data: ticketData };
+    }
+
+    async pauseTicket(channelId, pausedBy) {
+        const ticket = this.getTicketByChannelId(channelId);
+        if (!ticket) {
+            return { success: false, error: 'Ticket not found' };
+        }
+
+        const ticketData = this.activeTickets.get(ticket.userId);
+        ticketData.isPaused = true;
+        ticketData.pausedBy = pausedBy.id;
+        ticketData.pausedAt = Date.now();
+
+        return { success: true, data: ticketData };
+    }
+
+    async unpauseTicket(channelId, unpausedBy) {
+        const ticket = this.getTicketByChannelId(channelId);
+        if (!ticket) {
+            return { success: false, error: 'Ticket not found' };
+        }
+
+        const ticketData = this.activeTickets.get(ticket.userId);
+        ticketData.isPaused = false;
+        ticketData.pausedBy = null;
+        ticketData.pausedAt = null;
+
+        return { success: true, data: ticketData };
+    }
+
+    async generateTranscript(channel) {
+        try {
+            const messages = [];
+            let lastId;
+
+            // Fetch all messages in batches
+            while (true) {
+                const options = { limit: 100 };
+                if (lastId) options.before = lastId;
+
+                const batch = await channel.messages.fetch(options);
+                if (batch.size === 0) break;
+
+                messages.push(...batch.values());
+                lastId = batch.last().id;
+            }
+
+            // Sort messages by creation time (oldest first)
+            messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+            // Generate HTML transcript
+            const ticket = this.getTicketByChannelId(channel.id);
+            const category = config.ticketCategories[ticket?.category];
+            
+            let html = `<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket Transcript - ${channel.name}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #36393f;
+            color: #dcddde;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #2f3136;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .header {
+            background: #5865f2;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            color: white;
+        }
+        .ticket-info {
+            background: #40444b;
+            padding: 15px 20px;
+            border-bottom: 1px solid #484b51;
+        }
+        .ticket-info div {
+            margin: 5px 0;
+        }
+        .messages {
+            padding: 20px;
+        }
+        .message {
+            margin-bottom: 20px;
+            padding: 10px 15px;
+            background: #40444b;
+            border-radius: 8px;
+            border-left: 4px solid #5865f2;
+        }
+        .message-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            margin-right: 12px;
+            background: #5865f2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+        }
+        .username {
+            font-weight: 600;
+            color: #ffffff;
+            margin-right: 8px;
+        }
+        .timestamp {
+            color: #72767d;
+            font-size: 12px;
+        }
+        .message-content {
+            color: #dcddde;
+            word-wrap: break-word;
+        }
+        .embed {
+            border-left: 4px solid #5865f2;
+            background: #2f3136;
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 4px;
+        }
+        .embed-title {
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+        .embed-description {
+            color: #dcddde;
+            margin-bottom: 8px;
+        }
+        .attachment {
+            background: #40444b;
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            color: #00aff4;
+        }
+        .system-message {
+            border-left-color: #faa61a;
+            background: #40444b;
+        }
+        .bot-message {
+            border-left-color: #5865f2;
+        }
+        .footer {
+            background: #40444b;
+            padding: 15px 20px;
+            text-align: center;
+            color: #72767d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎫 Ticket Transcript</h1>
+        </div>
+        <div class="ticket-info">
+            <div><strong>📝 Channel:</strong> #${channel.name}</div>
+            <div><strong>📂 Category:</strong> ${category?.label || 'Unknown'} ${category?.emoji || ''}</div>
+            <div><strong>🕒 Created:</strong> ${new Date(ticket?.createdAt || Date.now()).toLocaleString('th-TH')}</div>
+            <div><strong>📊 Total Messages:</strong> ${messages.length}</div>
+            <div><strong>⏰ Generated:</strong> ${new Date().toLocaleString('th-TH')}</div>
+        </div>
+        <div class="messages">`;
+
+            for (const message of messages) {
+                const isBot = message.author.bot;
+                const isSystem = message.type !== 0; // System message types
+                const messageClass = isSystem ? 'system-message' : (isBot ? 'bot-message' : 'message');
+                
+                html += `
+            <div class="${messageClass}">
+                <div class="message-header">
+                    <div class="avatar">${message.author.username.charAt(0).toUpperCase()}</div>
+                    <span class="username">${this.escapeHtml(message.author.username)}${isBot ? ' (Bot)' : ''}</span>
+                    <span class="timestamp">${message.createdAt.toLocaleString('th-TH')}</span>
+                </div>
+                <div class="message-content">`;
+
+                if (message.content) {
+                    html += `<div>${this.escapeHtml(message.content).replace(/\n/g, '<br>')}</div>`;
+                }
+
+                // Add embeds
+                if (message.embeds.length > 0) {
+                    for (const embed of message.embeds) {
+                        html += `<div class="embed">`;
+                        if (embed.title) html += `<div class="embed-title">${this.escapeHtml(embed.title)}</div>`;
+                        if (embed.description) html += `<div class="embed-description">${this.escapeHtml(embed.description).replace(/\n/g, '<br>')}</div>`;
+                        html += `</div>`;
+                    }
+                }
+
+                // Add attachments
+                if (message.attachments.size > 0) {
+                    for (const attachment of message.attachments.values()) {
+                        html += `<div class="attachment">📎 <a href="${attachment.url}" target="_blank">${this.escapeHtml(attachment.name)}</a></div>`;
+                    }
+                }
+
+                html += `
+                </div>
+            </div>`;
+            }
+
+            html += `
+        </div>
+        <div class="footer">
+            Generated by Thai Esports League Ticket System<br>
+            ${new Date().toLocaleString('th-TH')}
+        </div>
+    </div>
+</body>
+</html>`;
+
+            return { success: true, html, messageCount: messages.length };
+        } catch (error) {
+            console.error('Error generating transcript:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
     }
 
     getTicketByChannelId(channelId) {
         for (const [userId, ticket] of this.activeTickets.entries()) {
-            if (ticket.channelId == channelId) {
-                return { ...ticket, userId};
+            if (ticket.channelId === channelId) {
+                return { ...ticket, userId };
             }
         }
         return null;
