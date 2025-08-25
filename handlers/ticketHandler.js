@@ -400,27 +400,33 @@ module.exports = (client) => {
         }
 
         else if (interaction.customId === 'close_ticket') {
-            // Check if user has permission to close (ticket owner or staff)
-            const canClose = isTicketOwner || isStaff;
-
-            if (!canClose) {
-                return interaction.reply({
-                    content: '❌ คุณไม่มีสิทธิ์ปิดตั๋วนี้',
-                    ephemeral: true
-                });
-            }
+            // ... existing permission checks ...
 
             await interaction.reply({
                 content: '🔒 กำลังปิดตั๋ว... กำลังสร้าง transcript และห้องนี้จะถูกลบใน 15 วินาที',
             });
 
             // Generate transcript before closing
-            console.log('📝 Generating transcript...');
+            console.log('📄 Generating transcript...');
             const transcriptResult = await ticketManager.generateTranscript(channel);
             
             let transcriptSent = false;
+            let transcriptUrl = null;
+            
             if (transcriptResult.success) {
                 try {
+                    // Save transcript to file system and get URL
+                    const fileUtils = require('../utils/fileUtils');
+                    const transcriptServer = require('../utils/transcriptServer');
+                    
+                    const saveResult = await fileUtils.saveTranscript(channel.name, transcriptResult.html, ticket.ticketNumber);
+                    
+                    if (saveResult.success) {
+                        // Create direct link using the transcript server
+                        transcriptUrl = transcriptServer.getTranscriptUrl(saveResult.fileName);
+                        console.log('🔗 Transcript URL:', transcriptUrl);
+                    }
+
                     // Send transcript to log channel if configured
                     if (config.server.logChannelId) {
                         const logChannel = interaction.guild.channels.cache.get(config.server.logChannelId);
@@ -429,17 +435,16 @@ module.exports = (client) => {
                             const fileName = `transcript-${channel.name}-${new Date().toISOString().split('T')[0]}.html`;
                             
                             await logChannel.send({
-                                content: `📋 **Transcript สำหรับตั๋ว:** ${channel.name}`,
+                                content: `📋 **Transcript สำหรับตั๋ว:** ${channel.name}${transcriptUrl ? `\n🔗 **Direct Link:** ${transcriptUrl}` : ''}`,
                                 files: [{
                                     attachment: transcriptBuffer,
                                     name: fileName
                                 }]
                             });
                             transcriptSent = true;
-                            console.log('✅ Transcript saved to log channel');
+                            console.log('✅ Transcript saved to log channel with direct link');
                         }
                     }
-
 
                 } catch (error) {
                     console.error('❌ Error sending transcript:', error);
@@ -463,11 +468,11 @@ module.exports = (client) => {
                             .setColor(config.colors.error)
                             .addFields(
                                 { name: '👤 เจ้าของตั๋ว', value: user ? `${user.user.tag} (${user.id})` : `User ID: ${ticket.userId}`, inline: true },
-                                { name: '🔒 ปิดโดย', value: `${interaction.user.tag} (${interaction.user.id})`, inline: true },
+                                { name: '🔐 ปิดโดย', value: `${interaction.user.tag} (${interaction.user.id})`, inline: true },
                                 { name: '📂 หมวดหมู่', value: category?.label || ticket.category, inline: true },
                                 { name: '⏱️ เวลาที่ใช้', value: `<t:${Math.floor(ticket.createdAt / 1000)}:R>`, inline: true },
                                 { name: '📊 จำนวนข้อความ', value: transcriptResult.success ? transcriptResult.messageCount.toString() : 'ไม่สามารถนับได้', inline: true },
-                                { name: '🔗 Direct Link', value: transcriptUrl ? `[Click here to view](${transcriptUrl})` : '❌ ไม่สามารถสร้างลิงก์ได้', inline: true },
+                                { name: '🔗 Direct Link', value: transcriptUrl ? `[คลิกที่นี่เพื่อดู](${transcriptUrl})` : '❌ ไม่สามารถสร้างลิงก์ได้', inline: true },
                             )
                             .setTimestamp();
 

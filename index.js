@@ -12,9 +12,8 @@ try {
     process.exit(1);
 }
 
-// Initialize transcript server
-const TranscriptServer = require('./utils/transcriptServer');
-const transcriptServer = new TranscriptServer();
+// Initialize transcript server (singleton instance)
+const transcriptServer = require('./utils/transcriptServer');
 
 const client = new Client({
     intents: [

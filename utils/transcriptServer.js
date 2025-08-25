@@ -159,4 +159,5 @@ class TranscriptServer {
     }
 }
 
-module.exports = TranscriptServer;
+// Export singleton instance
+module.exports = new TranscriptServer();
