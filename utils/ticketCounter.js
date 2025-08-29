@@ -1,10 +1,8 @@
-// Create new file: utils/ticketCounter.js
-const fs = require('fs').promises;
-const path = require('path');
+// Updated utils/ticketCounter.js
+const firebase = require('./firebase');
 
 class TicketCounter {
     constructor() {
-        this.counterFile = path.join(__dirname, '../data/ticket_counters.json');
         this.counters = {};
         this.categoryMapping = {
             'member_edit': 1,        // 1xxx
@@ -13,44 +11,35 @@ class TicketCounter {
             'technical_issue': 4,    // 4xxx
             'general_contact': 5     // 5xxx
         };
-        this.ensureDataDirectory();
-        this.loadCounters();
+        this.initialized = false;
     }
 
-    async ensureDataDirectory() {
+    async initialize() {
+        if (this.initialized) return;
+        
         try {
-            const dataDir = path.join(__dirname, '../data');
-            await fs.mkdir(dataDir, { recursive: true });
+            const result = await firebase.getTicketCounters();
+            if (result.success) {
+                this.counters = result.counters;
+                console.log('📊 Loaded ticket counters from Firebase:', this.counters);
+            } else {
+                throw new Error(result.error);
+            }
+            this.initialized = true;
         } catch (error) {
-            console.error('Error creating data directory:', error);
-        }
-    }
-
-    async loadCounters() {
-        try {
-            const data = await fs.readFile(this.counterFile, 'utf8');
-            this.counters = JSON.parse(data);
-            console.log('📊 Loaded ticket counters:', this.counters);
-        } catch (error) {
-            // File doesn't exist, initialize with default values
+            console.error('Error initializing ticket counter:', error);
+            // Fallback to default values if Firebase fails
             this.counters = {};
             for (const [category, prefix] of Object.entries(this.categoryMapping)) {
-                this.counters[category] = prefix * 1000; // Start at 1000, 2000, etc.
+                this.counters[category] = prefix * 1000;
             }
-            await this.saveCounters();
-            console.log('📊 Initialized new ticket counters:', this.counters);
-        }
-    }
-
-    async saveCounters() {
-        try {
-            await fs.writeFile(this.counterFile, JSON.stringify(this.counters, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving ticket counters:', error);
+            this.initialized = true;
         }
     }
 
     async getNextTicketNumber(category) {
+        if (!this.initialized) await this.initialize();
+        
         if (!this.categoryMapping[category]) {
             throw new Error(`Unknown ticket category: ${category}`);
         }
@@ -58,8 +47,14 @@ class TicketCounter {
         // Increment counter for this category
         this.counters[category] = (this.counters[category] || (this.categoryMapping[category] * 1000)) + 1;
         
-        // Save to file
-        await this.saveCounters();
+        // Save to Firebase
+        try {
+            await firebase.updateTicketCounters(this.counters);
+            console.log(`📈 Updated counter for ${category}: ${this.counters[category]}`);
+        } catch (error) {
+            console.error('Error saving counter to Firebase:', error);
+            // Continue anyway, better to have ticket with potentially duplicate number than no ticket
+        }
         
         return this.counters[category];
     }
@@ -74,7 +69,9 @@ class TicketCounter {
         return null;
     }
 
-    getStats() {
+    async getStats() {
+        if (!this.initialized) await this.initialize();
+        
         const stats = {};
         for (const [category, count] of Object.entries(this.counters)) {
             const baseCount = this.categoryMapping[category] * 1000;
@@ -93,8 +90,14 @@ class TicketCounter {
         for (const [category, prefix] of Object.entries(this.categoryMapping)) {
             this.counters[category] = prefix * 1000;
         }
-        await this.saveCounters();
-        console.log('🔄 Reset all ticket counters');
+        
+        try {
+            await firebase.updateTicketCounters(this.counters);
+            console.log('🔄 Reset all ticket counters in Firebase');
+        } catch (error) {
+            console.error('Error resetting counters in Firebase:', error);
+        }
+        
         return this.counters;
     }
 }

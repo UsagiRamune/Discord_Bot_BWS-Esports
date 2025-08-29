@@ -116,10 +116,18 @@ class TicketManager {
         ticketData.status = 'closed';
         ticketData.closedAt = Date.now();
         ticketData.closedBy = closedBy.id;
+        ticketData.closedByTag = closedBy.tag;
+
+        // Update in Firebase
+        await firebase.updateTicketStatus(ticketData.ticketNumber, 'closed', {
+            closedAt: ticketData.closedAt,
+            closedBy: closedBy.id,
+            closedByTag: closedBy.tag
+        });
 
         this.activeTickets.delete(userId);
         
-        console.log(`🔒 Closed ticket #${ticketData.ticketNumber}`);
+        console.log(`Closed ticket #${ticketData.ticketNumber}`);
         return { success: true, data: ticketData };
     }
 

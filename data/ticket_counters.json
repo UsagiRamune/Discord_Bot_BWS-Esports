@@ -1,0 +1,7 @@
+{
+  "member_edit": 1000,
+  "schedule_report": 2000,
+  "behavior_report": 3000,
+  "technical_issue": 4000,
+  "general_contact": 5000
+}
