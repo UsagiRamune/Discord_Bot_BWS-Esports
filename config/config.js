@@ -19,6 +19,12 @@ module.exports = {
         success: `#${process.env.SUCCESS_COLOR || '2ecc71'}`
     },
 
+    schedule: {
+        startHour: parseInt(process.env.START_HOUR) || 6,  // 6 AM
+        endHour: parseInt(process.env.END_HOUR) || 24,     // 12 AM (midnight)
+        timezone: process.env.TIMEZONE || 'Asia/Bangkok'
+    },
+
     ticketCategories: {
         'member_edit': {
             emoji: '👤',
@@ -51,5 +57,4 @@ module.exports = {
             color: '#2ecc71'
         }
     }
-
 };

@@ -1,6 +1,9 @@
 const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const config = require('../config/config');
 const ticketManager = require('../utils/ticketManager');
+const scheduleManager = require('../utils/scheduleManager');
+const ticketCounter = require('../utils/ticketCounter');
+const firebase = require('../utils/firebase');
 
 module.exports = (client) => {
     // Message create event for commands
@@ -51,7 +54,13 @@ module.exports = (client) => {
                     name: '📋 วิธีการใช้งาน',
                     value: '1️⃣ เลือกหมวดหมู่จากเมนูด้านล่าง\n2️⃣ ระบบจะสร้างห้องแชทส่วนตัวให้คุณ\n3️⃣ อธิบายปัญหาหรือคำถามของคุณ\n4️⃣ รอทีมงานตอบกลับ'
                 })
-                .setFooter({ text: 'Thai Esports League Support System' });
+                .addFields({
+                    name: '🕐 เวลาทำการ',
+                    value: `${config.schedule.startHour}:00 - ${config.schedule.endHour}:00 น. (เวลาไทย)`,
+                    inline: true
+                })
+                .setFooter({ text: 'Thai Esports League Support System' })
+                .setTimestamp();
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('ticket_category_select')
@@ -100,6 +109,41 @@ module.exports = (client) => {
             await message.reply({ embeds: [embed] });
         }
 
+        // Ticket counter stats command
+        if (command === 'ticket-counters') {
+            if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+                return message.reply('❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้');
+            }
+
+            const stats = await ticketCounter.getStats();
+            const embed = new EmbedBuilder()
+                .setTitle('🔢 สถิติหมายเลขตั๋ว')
+                .setColor(config.colors.primary)
+                .setDescription('สถิติการใช้หมายเลขตั๋วแยกตามหมวดหมู่')
+                .setTimestamp();
+
+            for (const [category, data] of Object.entries(stats)) {
+                const categoryInfo = config.ticketCategories[category];
+                embed.addFields({
+                    name: `${categoryInfo?.emoji || '📄'} ${categoryInfo?.label || category}`,
+                    value: `**สร้างแล้ว:** ${data.total} ตั๋ว\n**หมายเลขปัจจุบัน:** ${data.current}\n**หมายเลขถัดไป:** ${data.next}`,
+                    inline: true
+                });
+            }
+
+            await message.reply({ embeds: [embed] });
+        }
+
+        // Reset counters command (admin only)
+        if (command === 'reset-counters') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return message.reply('❌ คุณต้องมีสิทธิ์ Administrator เพื่อใช้คำสั่งนี้');
+            }
+
+            await ticketCounter.resetCounters();
+            await message.reply('🔄 รีเซ็ตหมายเลขตั๋วทั้งหมดเรียบร้อยแล้ว!');
+        }
+
         // Force close ticket command
         if (command === 'force-close') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -131,23 +175,42 @@ module.exports = (client) => {
             }, 5000);
         }
 
-        // Clean old transcripts command
-        if (command === 'clean-transcripts') {
+        // Firebase status command
+        if (command === 'firebase-status') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
                 return message.reply('❌ คุณต้องมีสิทธิ์ Administrator เพื่อใช้คำสั่งนี้');
             }
 
-            const days = parseInt(args[0]) || 30;
-            const fileUtils = require('../utils/fileUtils');
-            
-            await message.reply(`🧹 กำลังลบ transcript ที่เก่ากว่า ${days} วัน...`);
-            
-            const result = await fileUtils.cleanOldTranscripts(days);
-            if (result.success) {
-                await message.reply(`✅ ลบ transcript เก่า ${result.deletedCount} ไฟล์แล้ว`);
-            } else {
-                await message.reply(`❌ เกิดข้อผิดพลาด: ${result.error}`);
+            const isConnected = firebase.isInitialized();
+            const embed = new EmbedBuilder()
+                .setTitle('🔥 Firebase Status')
+                .setColor(isConnected ? config.colors.success : config.colors.error)
+                .addFields({
+                    name: 'Connection Status',
+                    value: isConnected ? '✅ Connected' : '❌ Not Connected',
+                    inline: true
+                });
+
+            if (isConnected) {
+                try {
+                    const statsResult = await firebase.getTicketStats();
+                    if (statsResult.success) {
+                        embed.addFields({
+                            name: 'Database Stats',
+                            value: `Total Tickets: ${statsResult.stats.total}\nOpen: ${statsResult.stats.open || 0}\nClosed: ${statsResult.stats.closed || 0}`,
+                            inline: true
+                        });
+                    }
+                } catch (error) {
+                    embed.addFields({
+                        name: 'Database Stats',
+                        value: 'Error retrieving stats',
+                        inline: true
+                    });
+                }
             }
+
+            await message.reply({ embeds: [embed] });
         }
     });
 
@@ -157,6 +220,22 @@ module.exports = (client) => {
 
         if (interaction.customId === 'ticket_category_select') {
             console.log('Dropdown selection detected!');
+
+            // Check operating hours
+            if (!scheduleManager.isInOperatingHours()) {
+                const operatingMsg = scheduleManager.getOperatingHoursMessage();
+                const embed = new EmbedBuilder()
+                    .setTitle(operatingMsg.title)
+                    .setDescription(operatingMsg.description)
+                    .setColor(operatingMsg.color)
+                    .addFields(operatingMsg.fields)
+                    .setTimestamp();
+
+                return interaction.reply({
+                    embeds: [embed],
+                    ephemeral: true
+                });
+            }
             
             const selectedCategory = interaction.values[0];
             const category = config.ticketCategories[selectedCategory];
@@ -204,11 +283,12 @@ module.exports = (client) => {
                     .setDescription(`สวัสดี ${user}! 👋\n\nขอบคุณที่ติดต่อทีมงาน Thai Esports League\nโปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`)
                     .setColor(category.color)
                     .addFields(
+                        { name: '🎫 หมายเลขตั๋ว', value: `#${data.ticketNumber}`, inline: true },
                         { name: '📂 หมวดหมู่', value: category.label, inline: true },
                         { name: '🕐 เวลาที่สร้าง', value: `<t:${Math.floor(data.createdAt / 1000)}:F>`, inline: true },
                         { name: '👤 ผู้สร้าง', value: user.toString(), inline: true }
                     )
-                    .setFooter({ text: `Ticket ID: ${channel.id} | สร้างเมื่อ` })
+                    .setFooter({ text: `Ticket #${data.ticketNumber} | สร้างเมื่อ` })
                     .setTimestamp();
 
                 // Create close and pause buttons
@@ -247,6 +327,7 @@ module.exports = (client) => {
                             .setTitle('📝 ตั๋วใหม่ถูกสร้าง')
                             .setColor(config.colors.success)
                             .addFields(
+                                { name: '🎫 หมายเลข', value: `#${data.ticketNumber}`, inline: true },
                                 { name: '👤 ผู้สร้าง', value: `${user.tag} (${user.id})`, inline: true },
                                 { name: '📂 หมวดหมู่', value: category.label, inline: true },
                                 { name: '🏷️ ห้อง', value: channel.toString(), inline: true }
@@ -400,7 +481,15 @@ module.exports = (client) => {
         }
 
         else if (interaction.customId === 'close_ticket') {
-            // ... existing permission checks ...
+            // Check if user has permission to close (ticket owner or staff)
+            const canClose = isTicketOwner || isStaff;
+
+            if (!canClose) {
+                return interaction.reply({
+                    content: '❌ คุณไม่มีสิทธิ์ปิดตั๋วนี้',
+                    ephemeral: true
+                });
+            }
 
             await interaction.reply({
                 content: '🔒 กำลังปิดตั๋ว... กำลังสร้าง transcript และห้องนี้จะถูกลบใน 15 วินาที',
@@ -425,6 +514,10 @@ module.exports = (client) => {
                         // Create direct link using the transcript server
                         transcriptUrl = transcriptServer.getTranscriptUrl(saveResult.fileName);
                         console.log('🔗 Transcript URL:', transcriptUrl);
+
+                        // Save transcript metadata to Firebase
+                        firebase.saveTranscriptMetadata(ticket.ticketNumber, transcriptUrl, transcriptResult.messageCount)
+                            .catch(err => console.error('Non-critical Firebase transcript save error:', err.message));
                     }
 
                     // Send transcript to log channel if configured
@@ -432,10 +525,10 @@ module.exports = (client) => {
                         const logChannel = interaction.guild.channels.cache.get(config.server.logChannelId);
                         if (logChannel) {
                             const transcriptBuffer = Buffer.from(transcriptResult.html, 'utf8');
-                            const fileName = `transcript-${channel.name}-${new Date().toISOString().split('T')[0]}.html`;
+                            const fileName = `transcript-${ticket.ticketNumber}-${new Date().toISOString().split('T')[0]}.html`;
                             
                             await logChannel.send({
-                                content: `📋 **Transcript สำหรับตั๋ว:** ${channel.name}${transcriptUrl ? `\n🔗 **Direct Link:** ${transcriptUrl}` : ''}`,
+                                content: `📋 **Transcript สำหรับตั๋ว:** #${ticket.ticketNumber}${transcriptUrl ? `\n🔗 **Direct Link:** ${transcriptUrl}` : ''}`,
                                 files: [{
                                     attachment: transcriptBuffer,
                                     name: fileName
@@ -467,6 +560,7 @@ module.exports = (client) => {
                             .setTitle('🔒 ตั๋วถูกปิด')
                             .setColor(config.colors.error)
                             .addFields(
+                                { name: '🎫 หมายเลข', value: `#${ticket.ticketNumber}`, inline: true },
                                 { name: '👤 เจ้าของตั๋ว', value: user ? `${user.user.tag} (${user.id})` : `User ID: ${ticket.userId}`, inline: true },
                                 { name: '🔐 ปิดโดย', value: `${interaction.user.tag} (${interaction.user.id})`, inline: true },
                                 { name: '📂 หมวดหมู่', value: category?.label || ticket.category, inline: true },

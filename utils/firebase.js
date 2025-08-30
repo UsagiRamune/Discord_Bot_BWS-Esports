@@ -1,4 +1,3 @@
-// Create: utils/firebase.js
 const admin = require('firebase-admin');
 
 class FirebaseService {
@@ -30,29 +29,41 @@ class FirebaseService {
                     credential: admin.credential.cert(serviceAccount),
                     databaseURL: `https://${process.env.FIREBASE_PROJECT_ID}-default-rtdb.firebaseio.com`
                 });
+
+                console.log('✅ Firebase initialized with environment variables');
             } 
             // For local development, use service account file
             else if (process.env.NODE_ENV !== 'production') {
-                const serviceAccount = require('../firebase-service-account.json');
-                admin.initializeApp({
-                    credential: admin.credential.cert(serviceAccount),
-                    databaseURL: `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`
-                });
+                try {
+                    const serviceAccount = require('../firebase-service-account.json');
+                    admin.initializeApp({
+                        credential: admin.credential.cert(serviceAccount),
+                        databaseURL: `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`
+                    });
+                    console.log('✅ Firebase initialized with service account file');
+                } catch (fileError) {
+                    console.log('⚠️ Firebase service account file not found, using environment variables');
+                    throw new Error('Firebase credentials not found for local development');
+                }
             } else {
                 throw new Error('Firebase credentials not found');
             }
 
             this.db = admin.firestore();
             this.initialized = true;
-            console.log('✅ Firebase initialized successfully');
+            console.log('✅ Firebase Firestore connected successfully');
         } catch (error) {
-            console.error('❌ Firebase initialization failed:', error);
-            throw error;
+            console.error('❌ Firebase initialization failed:', error.message);
+            console.log('⚠️ Bot will continue without Firebase integration');
+            // Don't throw error, let bot continue without Firebase
         }
     }
 
     async saveTicketData(ticketData) {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            console.log('⚠️ Firebase not available, skipping ticket save');
+            return { success: false, error: 'Firebase not initialized' };
+        }
         
         try {
             const docRef = await this.db.collection('tickets').add({
@@ -70,7 +81,10 @@ class FirebaseService {
     }
 
     async updateTicketStatus(ticketNumber, status, additionalData = {}) {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            console.log('⚠️ Firebase not available, skipping ticket update');
+            return { success: false, error: 'Firebase not initialized' };
+        }
         
         try {
             const ticketQuery = await this.db.collection('tickets')
@@ -98,7 +112,9 @@ class FirebaseService {
     }
 
     async getTicketStats() {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            return { success: false, error: 'Firebase not initialized' };
+        }
         
         try {
             const tickets = await this.db.collection('tickets').get();
@@ -124,7 +140,10 @@ class FirebaseService {
     }
 
     async saveTranscriptMetadata(ticketNumber, transcriptUrl, messageCount) {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            console.log('⚠️ Firebase not available, skipping transcript metadata save');
+            return { success: false, error: 'Firebase not initialized' };
+        }
         
         try {
             await this.db.collection('transcripts').add({
@@ -144,7 +163,17 @@ class FirebaseService {
 
     // Get ticket counters from Firebase
     async getTicketCounters() {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            // Fallback to default counters if Firebase is not available
+            const defaultCounters = {
+                'member_edit': 1000,
+                'schedule_report': 2000,
+                'behavior_report': 3000,
+                'technical_issue': 4000,
+                'general_contact': 5000
+            };
+            return { success: true, counters: defaultCounters };
+        }
         
         try {
             const doc = await this.db.collection('system').doc('ticketCounters').get();
@@ -169,13 +198,24 @@ class FirebaseService {
             }
         } catch (error) {
             console.error('Error getting ticket counters:', error);
-            return { success: false, error: error.message };
+            // Fallback to default counters
+            const defaultCounters = {
+                'member_edit': 1000,
+                'schedule_report': 2000,
+                'behavior_report': 3000,
+                'technical_issue': 4000,
+                'general_contact': 5000
+            };
+            return { success: true, counters: defaultCounters };
         }
     }
 
     // Update ticket counters in Firebase
     async updateTicketCounters(counters) {
-        if (!this.initialized) await this.initialize();
+        if (!this.initialized || !this.db) {
+            console.log('⚠️ Firebase not available, skipping counter update');
+            return { success: false, error: 'Firebase not initialized' };
+        }
         
         try {
             await this.db.collection('system').doc('ticketCounters').set({
@@ -188,6 +228,10 @@ class FirebaseService {
             console.error('Error updating ticket counters:', error);
             return { success: false, error: error.message };
         }
+    }
+
+    isInitialized() {
+        return this.initialized && this.db !== null;
     }
 }
 
