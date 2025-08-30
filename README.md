@@ -16,7 +16,7 @@ A professional Discord ticket system with Firebase integration, scheduled operat
 ## Project Structure
 
 ```
-thai-esports-ticket-bot/
+discord_bot_bws_esports/
 ├── config/
 │   └── config.js              # Bot configuration
 ├── handlers/
