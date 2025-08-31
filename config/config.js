@@ -2,7 +2,8 @@ module.exports = {
     bot: {
         token: process.env.BOT_TOKEN,
         prefix: process.env.PREFIX || '!',
-        maxTicketsPerUser: parseInt(process.env.MAX_TICKETS_PER_USER) || 1
+        maxTicketsPerUser: parseInt(process.env.MAX_TICKETS_PER_USER) || 1,
+        clientId: process.env.CLIENT_ID
     },
 
     server: {
