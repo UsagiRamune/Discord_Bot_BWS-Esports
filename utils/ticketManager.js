@@ -17,56 +17,41 @@ class TicketManager {
     }
 
     async createTicketChannel(guild, user, categoryKey) {
+        // ================== START: CODE ที่แก้ ==================
+        console.log('[TM-DEBUG] Entered createTicketChannel');
         const category = config.ticketCategories[categoryKey];
+        if (!category) {
+            console.error(`[TM-DEBUG] CRITICAL: Invalid category key provided: ${categoryKey}`);
+            return { success: false, error: `Invalid ticket category: ${categoryKey}` };
+        }
         
-        // Get next ticket number
+        console.log('[TM-DEBUG] Getting next ticket number...');
         const ticketNumber = await ticketCounter.getNextTicketNumber(categoryKey);
+        console.log(`[TM-DEBUG] Got ticket number: ${ticketNumber}`);
         const channelName = `ticket-${ticketNumber}`;
+        // ================== END: CODE ที่แก้ ==================
 
         try {
             const permissionOverwrites = [
-                {
-                    id: guild.id,
-                    deny: [PermissionFlagsBits.ViewChannel]
-                },
-                {
-                    id: user.id,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.AttachFiles
-                    ]
-                },
-                {
-                    id: guild.members.me.id,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ManageMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.AttachFiles
-                    ]
-                }
+                { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
+                { id: guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] }
             ];
 
-            // Add staff role permissions if configured
             if (config.server.staffRoleId) {
                 const staffRole = guild.roles.cache.get(config.server.staffRoleId);
                 if (staffRole) {
                     permissionOverwrites.push({
                         id: staffRole.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.ManageMessages,
-                            PermissionFlagsBits.AttachFiles
-                        ]
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.AttachFiles]
                     });
+                } else {
+                    console.warn(`[TM-WARN] Staff Role ID (${config.server.staffRoleId}) not found in this guild.`);
                 }
             }
-
+            
+            // ================== START: CODE ที่แก้ ==================
+            console.log(`[TM-DEBUG] Preparing to create channel '${channelName}' in category ${config.server.ticketCategoryId || 'none'}`);
             const ticketChannel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
@@ -74,6 +59,8 @@ class TicketManager {
                 parent: config.server.ticketCategoryId || null,
                 permissionOverwrites
             });
+            console.log(`[TM-DEBUG] Channel created successfully: ${ticketChannel.id}`);
+            // ================== END: CODE ที่แก้ ==================
 
             const ticketData = {
                 ticketNumber: ticketNumber,
@@ -91,7 +78,6 @@ class TicketManager {
 
             this.activeTickets.set(user.id, ticketData);
             
-            // Save to Firebase (non-blocking)
             firebase.saveTicketData(ticketData).catch(err => {
                 console.error('Non-critical Firebase save error:', err.message);
             });
@@ -100,8 +86,14 @@ class TicketManager {
             
             return { success: true, channel: ticketChannel, data: ticketData };
         } catch (error) {
-            console.error('Error creating ticket channel:', error);
+            // ================== START: CODE ที่แก้ ==================
+            console.error('!!!!!!!!!! FAILED AT guild.channels.create !!!!!!!!!!');
+            console.error('This is likely a PERMISSIONS or INVALID ID issue.');
+            console.error(`Check if bot has 'Manage Channels' permission.`);
+            console.error(`Check if TICKET_CATEGORY_ID '${config.server.ticketCategoryId}' is valid and the bot can access it.`);
+            console.error(error); // แสดง error แบบเต็มๆ
             return { success: false, error: error.message };
+            // ================== END: CODE ที่แก้ ==================
         }
     }
 
