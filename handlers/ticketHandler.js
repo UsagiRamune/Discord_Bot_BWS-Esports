@@ -120,7 +120,7 @@ module.exports = (client) => {
                 return message.reply('❌ คำสั่งนี้ใช้ได้เฉพาะในช่องตั๋วเท่านั้น');
             }
             await message.reply('🔒 กำลังปิดตั๋วแบบบังคับ...');
-            const transcriptResult = await ticketManager.generateTranscript(message.channel);
+            await ticketManager.generateTranscript(message.channel);
             await ticketManager.closeTicket(message.channel.id, message.author);
             console.log(`🔨 Force closed ticket: ${message.channel.name} by ${message.author.tag}`);
             setTimeout(async () => { try { await message.channel.delete('Force closed by admin'); } catch (error) { console.error('Error deleting channel:', error); } }, 5000);
@@ -159,19 +159,13 @@ module.exports = (client) => {
         if (interaction.isStringSelectMenu()) {
             if (interaction.customId === 'ticket_category_select') {
                 
-                // ================== START: CODE ที่แก้ ==================
-                
-                // 1. ย้าย deferReply ขึ้นมาไว้บรรทัดแรกเลย! เพื่อกัน Timeout
+                // FIXED: ย้าย deferReply ขึ้นมาบนสุดเพื่อแก้ปัญหา interaction failed
                 await interaction.deferReply({ ephemeral: true });
-                
-                console.log(`[DEBUG] Interaction received from ${interaction.user.tag}. Starting checks...`);
 
                 try {
                     if (!scheduleManager.isInOperatingHours()) {
-                        console.log(`[DEBUG] Denied: Outside operating hours.`);
                         const operatingMsg = scheduleManager.getOperatingHoursMessage();
                         const embed = new EmbedBuilder().setTitle(operatingMsg.title).setDescription(operatingMsg.description).setColor(operatingMsg.color).addFields(operatingMsg.fields).setTimestamp();
-                        // 2. เปลี่ยนเป็น editReply
                         return interaction.editReply({ embeds: [embed], ephemeral: true });
                     }
 
@@ -181,10 +175,8 @@ module.exports = (client) => {
                     const guild = interaction.guild;
 
                     if (ticketManager.hasActiveTicket(user.id)) {
-                        console.log(`[DEBUG] Denied: User ${user.tag} already has an active ticket.`);
                         const activeTicket = ticketManager.getActiveTicket(user.id);
                         const channel = guild.channels.cache.get(activeTicket.channelId);
-                        // 2. เปลี่ยนเป็น editReply
                         return interaction.editReply({
                             content: `❌ คุณมีตั๋วที่เปิดอยู่แล้ว! กรุณาไปที่ ${channel ? channel.toString() : 'ห้องแชทตั๋วของคุณ'}`,
                             ephemeral: true
@@ -192,20 +184,15 @@ module.exports = (client) => {
                     }
                     
                     if (!ticketManager.canCreateTicket(user.id)) {
-                        console.log(`[DEBUG] Denied: User ${user.tag} has reached ticket limit.`);
-                        // 2. เปลี่ยนเป็น editReply
                         return interaction.editReply({
                             content: `❌ คุณถึงขีดจำกัดการสร้างตั๋วแล้ว (สูงสุด ${config.bot.maxTicketsPerUser} ตั๋วต่อคน)`,
                             ephemeral: true
                         });
                     }
                     
-                    console.log(`[DEBUG] Attempting to create ticket for ${user.tag} in category ${selectedCategory}`);
                     const result = await ticketManager.createTicketChannel(guild, user, selectedCategory);
-                    console.log('[DEBUG] ticketManager.createTicketChannel finished. Result success:', result.success);
                     
                     if (!result.success) {
-                        console.error(`[DEBUG] Ticket creation failed explicitly: ${result.error}`);
                         return interaction.editReply({ content: `❌ เกิดข้อผิดพลาดในการสร้างตั๋ว: ${result.error}` });
                     }
 
@@ -216,16 +203,49 @@ module.exports = (client) => {
                     let dynamicDescription = '';
                     switch (selectedCategory) {
                         case 'member_edit':
-                            dynamicDescription = `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว...`; // (เนื้อหาเหมือนเดิม)
+                            dynamicDescription =
+                                `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว พวกเขาจะเข้ามาช่วยเหลือคุณในเร็ว ๆ นี้โปรดรอสักพักนึง โปรดแจ้งรายละเอียดเรื่องที่จะแจ้งของคุณให้กับล่วงหน้าก่อน Staff ของเราจะเข้ามาช่วยเหลือคุณ เพื่อเพิ่มความรวดเร็วในการดำเนินเรื่อง\n\n` +
+                                `**โปรดระบุเนื้อหาของเรื่องที่แจ้งดังนี้**\n` +
+                                `- ชื่อสมาชิกที่ต้องการเปลี่ยน\n` +
+                                `- Game name\n` +
+                                `- Game UID\n\n` +
+                                `ขอบคุณที่ติดต่อทีมงาน BWS Esports\n` +
+                                `โปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
                             break;
                         case 'schedule_report':
-                            dynamicDescription = `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว...`; // (เนื้อหาเหมือนเดิม)
+                            dynamicDescription =
+                                `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว พวกเขาจะเข้ามาช่วยเหลือคุณในเร็ว ๆ นี้โปรดรอสักพักนึง โปรดแจ้งรายละเอียดเรื่องที่จะแจ้งของคุณให้กับล่วงหน้าก่อน Staff ของเราจะเข้ามาช่วยเหลือคุณ เพื่อเพิ่มความรวดเร็วในการดำเนินเรื่อง\n\n` +
+                                `**โปรดระบุเนื้อหาของเรื่องที่แจ้งดังนี้**\n` +
+                                `- ชื่อทีมแข่งของทั้งสองทีม\n` +
+                                `- เวลาในที่กำหนดแล้ว\n` +
+                                `- รูปภาพหลักฐานการพูดคุยและตกลงกันของทั้งสองทีม\n\n` +
+                                `ขอบคุณที่ติดต่อทีมงาน BWS Esports\n` +
+                                `โปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
                             break;
                         case 'behavior_report':
-                            dynamicDescription = `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว...`; // (เนื้อหาเหมือนเดิม)
+                            dynamicDescription =
+                                `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว พวกเขาจะเข้ามาช่วยเหลือคุณในเร็ว ๆ นี้โปรดรอสักพักนึง โปรดแจ้งรายละเอียดเรื่องที่จะแจ้งของคุณให้กับล่วงหน้าก่อน Staff ของเราจะเข้ามาช่วยเหลือคุณ เพื่อเพิ่มความรวดเร็วในการดำเนินเรื่อง\n\n` +
+                                `**โปรดระบุเนื้อหาของเรื่องที่แจ้งดังนี้**\n` +
+                                `- ชื่อทีมคู่กรณี\n` +
+                                `- ชื่อของนักแข่งคู่กรณี\n` +
+                                `- หลักฐานการกระทำผิด (รูปภาพ, วิดีโอภาพ หรือไฟล์เสียง)\n\n` +
+                                `ขอบคุณที่ติดต่อทีมงาน BWS Esports\n` +
+                                `โปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
+                            break;
+                        case 'technical_issue':
+                        case 'general_contact':
+                            dynamicDescription =
+                                `สวัสดี ${user}! 👋เราได้ทำการติดต่อ <@&${config.server.staffRoleId}> ให้คุณแล้ว พวกเขาจะเข้ามาช่วยเหลือคุณในเร็ว ๆ นี้โปรดรอสักพักนึง โปรดแจ้งรายละเอียดเรื่องที่จะแจ้งของคุณให้กับล่วงหน้าก่อน Staff ของเราจะเข้ามาช่วยเหลือคุณ เพื่อเพิ่มความรวดเร็วในการดำเนินเรื่อง\n\n` +
+                                `**โปรดระบุเนื้อหาของเรื่องที่แจ้งดังนี้**\n` +
+                                `- รายชื่อทีมที่กำลังแข่ง (ทั้งทีมผู้แจ้งและทีมฝั่งตรงข้าม)\n` +
+                                `- เวลาที่เกิดปัญหา\n` +
+                                `- หลักฐานปัญหา (รูปภาพ หรือ วิดีโอภาพ)\n\n` +
+                                `ขอบคุณที่ติดต่อทีมงาน BWS Esports\n` +
+                                `โปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
                             break;
                         default:
-                            dynamicDescription = `สวัสดี ${user}! 👋\n\nขอบคุณที่ติดต่อทีมงาน BWS Esports\nโปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
+                            dynamicDescription =
+                                `สวัสดี ${user}! 👋\n\nขอบคุณที่ติดต่อทีมงาน BWS Esports\nโปรดอธิบายปัญหาหรือคำถามของคุณได้เลย`;
                     }
                     
                     const welcomeEmbed = new EmbedBuilder()
@@ -248,7 +268,6 @@ module.exports = (client) => {
 
                     await channel.send({ embeds: [welcomeEmbed], components: [buttonRow] });
                     await interaction.editReply({ content: `✅ สร้างตั๋วเรียบร้อยแล้ว! กรุณาไปที่ ${channel} เพื่อดำเนินการต่อ` });
-                    console.log(`✅ Ticket created successfully: ${channel.name} (${channel.id}) for ${user.tag}`);
                     
                     if (config.server.logChannelId) {
                         const logChannel = guild.channels.cache.get(config.server.logChannelId);
@@ -267,13 +286,9 @@ module.exports = (client) => {
                         }
                     }
                 } catch (error) {
-                    // 3. เพิ่ม Log ดัก Error แบบละเอียด
-                    console.error('!!!!!!!!!! CRITICAL ERROR IN TICKET CREATION PROCESS !!!!!!!!!!');
-                    console.error(error); // แสดง error แบบเต็มๆ
-                    await interaction.editReply({ content: `❌ เกิดข้อผิดพลาดร้ายแรง กรุณาลองใหม่ หรือแจ้ง Admin และเช็ค Log โดยด่วน!` }).catch(err => console.error("Could not even edit the reply!", err));
+                    console.error('Error in ticket creation process:', error);
+                    await interaction.editReply({ content: `❌ เกิดข้อผิดพลาดในการสร้างตั๋ว กรุณาลองอีกครั้งหรือติดต่อผู้ดูแลระบบ` }).catch(() => {});
                 }
-                
-                // ================== END: CODE ที่แก้ ==================
             }
         }
         
@@ -289,6 +304,7 @@ module.exports = (client) => {
         if (interaction.customId === 'pause_ticket') {
             if (!isStaff) { return interaction.reply({ content: '❌ เฉพาะทีมงานเท่านั้นที่สามารถหยุดตั๋วชั่วคราวได้', ephemeral: true }); }
             if (ticket.isPaused) { return interaction.reply({ content: '⚠️ ตั๋วนี้ถูกหยุดชั่วคราวอยู่แล้ว', ephemeral: true }); }
+            
             const pauseResult = await ticketManager.pauseTicket(channel.id, interaction.user);
             if (pauseResult.success) {
                 await channel.permissionOverwrites.edit(ticket.userId, { SendMessages: false });
@@ -298,10 +314,31 @@ module.exports = (client) => {
                 const pauseEmbed = new EmbedBuilder().setTitle('⏸️ ตั๋วถูกหยุดชั่วคราว').setDescription(`ตั๋วนี้ถูกหยุดโดย ${interaction.user}\n\nผู้ใช้ไม่สามารถส่งข้อความได้จนกว่าทีมงานจะเริ่มใหม่`).setColor(config.colors.warning).setTimestamp();
                 await interaction.reply({ embeds: [pauseEmbed], components: [buttonRow] });
                 console.log(`⏸️ Ticket paused: ${channel.name} by ${interaction.user.tag}`);
+
+                // ADDED: ส่ง Log ไปที่ห้อง Log ตอน Pause Ticket
+                if (config.server.logChannelId) {
+                    const logChannel = interaction.guild.channels.cache.get(config.server.logChannelId);
+                    const ticketOwner = await client.users.fetch(ticket.userId).catch(() => null);
+                    if (logChannel) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('⏸️ ตั๋วถูกหยุดชั่วคราว')
+                            .setColor(config.colors.warning)
+                            .addFields(
+                                { name: '🎫 หมายเลขตั๋ว', value: `#${ticket.ticketNumber}`, inline: true },
+                                { name: '👤 เจ้าของตั๋ว', value: ticketOwner ? `${ticketOwner.tag}` : `ID: ${ticket.userId}`, inline: true },
+                                { name: '⏸️ หยุดโดย', value: `${interaction.user.tag}`, inline: true },
+                                { name: '🏷️ ห้อง', value: channel.toString(), inline: false }
+                            )
+                            .setTimestamp();
+                        await logChannel.send({ embeds: [logEmbed] }).catch(console.error);
+                    }
+                }
+
             } else { await interaction.reply({ content: `❌ เกิดข้อผิดพลาดในการหยุดตั๋ว: ${pauseResult.error}`, ephemeral: true }); }
         } else if (interaction.customId === 'unpause_ticket') {
             if (!isStaff) { return interaction.reply({ content: '❌ เฉพาะทีมงานเท่านั้นที่สามารถเริ่มตั๋วใหม่ได้', ephemeral: true }); }
             if (!ticket.isPaused) { return interaction.reply({ content: '⚠️ ตั๋วนี้ไม่ได้ถูกหยุดชั่วคราว', ephemeral: true }); }
+            
             const unpauseResult = await ticketManager.unpauseTicket(channel.id, interaction.user);
             if (unpauseResult.success) {
                 await channel.permissionOverwrites.edit(ticket.userId, { SendMessages: true });
@@ -311,13 +348,32 @@ module.exports = (client) => {
                 const unpauseEmbed = new EmbedBuilder().setTitle('▶️ ตั๋วเริ่มทำงานใหม่').setDescription(`ตั๋วถูกเริ่มใหม่โดย ${interaction.user}\n\nผู้ใช้สามารถส่งข้อความได้ตามปกติแล้ว`).setColor(config.colors.success).setTimestamp();
                 await interaction.reply({ embeds: [unpauseEmbed], components: [buttonRow] });
                 console.log(`▶️ Ticket unpaused: ${channel.name} by ${interaction.user.tag}`);
+
+                // ADDED: ส่ง Log ไปที่ห้อง Log ตอน Unpause Ticket
+                if (config.server.logChannelId) {
+                    const logChannel = interaction.guild.channels.cache.get(config.server.logChannelId);
+                    const ticketOwner = await client.users.fetch(ticket.userId).catch(() => null);
+                    if (logChannel) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('▶️ ตั๋วเริ่มทำงานใหม่')
+                            .setColor(config.colors.success)
+                            .addFields(
+                                { name: '🎫 หมายเลขตั๋ว', value: `#${ticket.ticketNumber}`, inline: true },
+                                { name: '👤 เจ้าของตั๋ว', value: ticketOwner ? `${ticketOwner.tag}` : `ID: ${ticket.userId}`, inline: true },
+                                { name: '▶️ เริ่มใหม่โดย', value: `${interaction.user.tag}`, inline: true },
+                                { name: '🏷️ ห้อง', value: channel.toString(), inline: false }
+                            )
+                            .setTimestamp();
+                        await logChannel.send({ embeds: [logEmbed] }).catch(console.error);
+                    }
+                }
+
             } else { await interaction.reply({ content: `❌ เกิดข้อผิดพลาดในการเริ่มตั๋วใหม่: ${unpauseResult.error}`, ephemeral: true }); }
         } else if (interaction.customId === 'close_ticket') {
             const canClose = isTicketOwner || isStaff;
             if (!canClose) { return interaction.reply({ content: '❌ คุณไม่มีสิทธิ์ปิดตั๋วนี้', ephemeral: true }); }
             await interaction.reply({ content: '🔒 กำลังปิดตั๋ว... กำลังสร้าง transcript และห้องนี้จะถูกลบใน 15 วินาที', });
             const transcriptResult = await ticketManager.generateTranscript(channel);
-            let transcriptSent = false;
             let transcriptUrl = null;
             if (transcriptResult.success) {
                 try {
@@ -335,7 +391,6 @@ module.exports = (client) => {
                             const transcriptBuffer = Buffer.from(transcriptResult.html, 'utf8');
                             const fileName = `transcript-${ticket.ticketNumber}-${new Date().toISOString().split('T')[0]}.html`;
                             await logChannel.send({ content: `📋 **Transcript สำหรับตั๋ว:** #${ticket.ticketNumber}${transcriptUrl ? `\n🔗 **Direct Link:** ${transcriptUrl}` : ''}`, files: [{ attachment: transcriptBuffer, name: fileName }] });
-                            transcriptSent = true;
                             console.log('✅ Transcript saved to log channel with direct link');
                         }
                     }
