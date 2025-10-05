@@ -181,7 +181,7 @@ class ScheduleManager {
 
     destroy() {
         this.cronJobs.forEach(job => {
-            if (job) job.destroy();
+            if (job) job.stop();
         });
         this.cronJobs = [];
         console.log('📅 Schedule manager destroyed');

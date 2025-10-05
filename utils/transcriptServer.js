@@ -11,11 +11,11 @@ class TranscriptServer {
     }
 
     setupRoutes() {
-        // Health check endpoint (required by most hosting services)
+        // ADDED: Health check endpoint (for Render's inactivity fix)
         this.app.get('/health', (req, res) => {
             res.status(200).json({ 
                 status: 'OK', 
-                message: 'Thai Esports League Transcript Server',
+                message: 'Thai Esports League Bot is awake!',
                 timestamp: new Date().toISOString()
             });
         });
