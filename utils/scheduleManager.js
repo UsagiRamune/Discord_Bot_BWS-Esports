@@ -143,7 +143,7 @@ class ScheduleManager {
         if (!this.client) return;
 
         try {
-            // Import here to avoid circular dependency
+
             const ticketManager = require('./ticketManager');
             const { EmbedBuilder } = require('discord.js');
             
